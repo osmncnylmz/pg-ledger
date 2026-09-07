@@ -1,10 +1,6 @@
 /**
- * The reporting layer, checked against a small set of books with known
- * numbers.
- *
- * Mechanisms: sql/0012_reporting.sql -- the trial balance, the running
- * balance built with a window function, and the chart-of-accounts rollups
- * built with two recursive CTEs.
+ * The reporting layer, checked against a quarter of books small enough that
+ * every expected figure below was worked out on paper first.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -111,7 +107,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  await fixture.close()
+  await fixture.db.close()
 })
 
 describe('trial balance', () => {
@@ -176,9 +172,8 @@ describe('account statement', () => {
   })
 
   it('opens a date-filtered statement with the balance brought forward', async () => {
-    // The window frame runs from the beginning of time and the date filter is
-    // applied afterwards, so February opens at January's closing balance
-    // rather than at zero.
+    // window frame runs from the beginning of time, date filter applied after
+    // it -- so February opens at January's close, not at zero
     const february = await fixture.ledger.statement(tenant.id, '1000', {
       from: '2026-02-01T00:00:00Z',
       to: '2026-02-28T23:59:59Z',
@@ -191,7 +186,6 @@ describe('account statement', () => {
 
   it('flips the sign for a credit-normal account', async () => {
     const rows = await fixture.ledger.statement(tenant.id, '2000')
-    // A credit on a liability increases it.
     expect(rows.map((r) => [r.direction, r.signedAmount, r.runningBalance])).toEqual([
       ['credit', '8000.0000', '8000.0000'],
     ])

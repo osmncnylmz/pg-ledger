@@ -1,20 +1,15 @@
--- 0001_foundation.sql
---
 -- Extensions, schema, roles, enumerations and domains.
 --
--- Two roles are created:
+-- ledger_owner owns every object in the schema. Deployments never connect as
+-- it. It exists so that the application role is a *non-owner*, and so that the
+-- few operations which must escalate -- maintaining the balance cache -- can
+-- do so through one narrowly scoped SECURITY DEFINER function.
 --
---   ledger_owner  owns every object in the schema. Deployments never connect
---                 as this role; it exists so that the application role is a
---                 *non-owner*, and so that the few operations which must
---                 escalate (maintaining the balance cache) can do so through
---                 a narrowly scoped SECURITY DEFINER function.
+-- ledger_app is what the application connects as: the minimum privileges it
+-- needs (no DELETE anywhere, no UPDATE on the journal) and no exemption from
+-- row level security.
 --
---   ledger_app    the role the application connects as. It gets the minimum
---                 privileges it needs (no DELETE anywhere, no UPDATE on the
---                 journal) and is subject to row level security.
---
--- Both are NOLOGIN: a real deployment creates a login role and GRANTs
+-- Both are NOLOGIN. A real deployment creates a login role and GRANTs
 -- ledger_app to it.
 
 -- btree_gist lets a GiST exclusion constraint mix an equality column
@@ -49,17 +44,16 @@ create type ledger.entry_direction as enum ('debit', 'credit');
 
 create type ledger.period_state as enum ('open', 'closed');
 
--- ISO 4217 alphabetic code. A domain rather than char(3) so that the
+-- ISO 4217 alphabetic code. A domain, not char(3), so that the
 -- constraint travels with every column that stores a currency.
 create domain ledger.currency_code as text
   constraint currency_code_iso4217 check (value ~ '^[A-Z]{3}$');
 
--- The tenant the current session is acting for.
---
--- Every row level security policy is written in terms of this function.
--- It is deliberately fail-closed: when app.tenant_id is unset or empty the
--- function returns NULL, every policy predicate evaluates to NULL, and the
--- session sees and writes nothing at all.
+-- The tenant the current session is acting for. Every row level security
+-- policy is written in terms of this function, so its NULL is load-bearing:
+-- when app.tenant_id is unset or empty every policy predicate evaluates to
+-- NULL and the session sees and writes nothing at all. Forget the SET and you
+-- get an empty result, not someone else's books.
 create function ledger.current_tenant_id() returns uuid
   language sql
   stable

@@ -1,14 +1,11 @@
--- 0007_immutability.sql
---
 -- Invariant #2: the journal is append-only.
 --
 -- Privileges are the first line of defence -- ledger_app is never granted
 -- UPDATE or DELETE on the journal (see 0090_security.sql). Privileges are not
 -- enough on their own: an owner can grant them back, a migration can run as
 -- the owner, and a superuser ignores them entirely. The trigger below refuses
--- the operation for *every* role, including the table owner and a superuser,
--- because a trigger is part of the write path rather than a permission check
--- in front of it.
+-- the operation for *every* role, table owner and superuser included, because
+-- a trigger sits inside the write path instead of in front of it.
 --
 -- The only way to undo a posted entry is ledger.reverse_entry(), which posts
 -- the mirror entry and links the two. See 0011_posting_api.sql.

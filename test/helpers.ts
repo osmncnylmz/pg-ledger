@@ -1,9 +1,9 @@
 /**
  * Test fixtures.
  *
- * Every test file gets its own in-process PostgreSQL 18 (PGlite) with the
- * real migrations applied -- the same SQL a server deployment would run. No
- * mocks, no fakes, no "unit tested the query builder".
+ * Every test file gets its own in-process PostgreSQL 18 (PGlite) with the real
+ * migrations applied: the same SQL a server deployment would run. No mocks, no
+ * "unit tested the query builder".
  */
 
 import { Database } from '../src/database.js'
@@ -13,16 +13,11 @@ import type { NewAccount, Uuid } from '../src/types.js'
 export interface Fixture {
   db: Database
   ledger: Ledger
-  close: () => Promise<void>
 }
 
 export async function createFixture(): Promise<Fixture> {
   const db = await Database.create()
-  return {
-    db,
-    ledger: new Ledger(db),
-    close: () => db.close(),
-  }
+  return { db, ledger: new Ledger(db) }
 }
 
 /** A small but realistic chart of accounts: three levels, all five types. */
@@ -45,7 +40,7 @@ export const CHART_OF_ACCOUNTS: NewAccount[] = [
   { code: '5200', name: 'Rent', type: 'expense', parentCode: '5' },
 ]
 
-/** Codes that may be posted to: the leaves of CHART_OF_ACCOUNTS. */
+/** The leaves, which are the only codes a posting may name. */
 export const LEAF_CODES = CHART_OF_ACCOUNTS.filter((a) => a.parentCode !== undefined).map(
   (a) => a.code,
 )

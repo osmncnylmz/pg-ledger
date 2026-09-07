@@ -1,24 +1,20 @@
--- 0010_account_balances.sql
---
 -- The incrementally maintained balance cache.
 --
--- Recomputing a balance by scanning the journal is O(postings) and gets
--- slower every day the business trades. This table keeps running totals per
--- (tenant, account, currency), maintained by a trigger inside the same
--- transaction as the posting, so the cache can never be stale or partially
--- applied: if the posting commits the cache moved with it, and if the posting
--- rolls back so does the cache.
+-- Recomputing a balance by scanning the journal is O(postings) and gets slower
+-- every day the business trades. This table keeps running totals per (tenant,
+-- account, currency), maintained by a trigger inside the same transaction as
+-- the posting, so the cache can never be stale or partially applied: if the
+-- posting commits the cache moved with it, and if the posting rolls back so
+-- does the cache.
 --
--- Two design notes:
+-- The trigger is FOR EACH STATEMENT with a transition table, not FOR EACH ROW,
+-- so a 200-line entry produces one grouped UPSERT instead of 200.
 --
---   * The trigger is FOR EACH STATEMENT with a transition table, not FOR EACH
---     ROW. A 200-line entry produces one grouped UPSERT instead of 200.
---
---   * ledger_app has SELECT only on this table. The trigger writes through a
---     SECURITY DEFINER function owned by ledger_owner, so the totals cannot be
---     edited by the application even accidentally. FORCE ROW LEVEL SECURITY
---     still applies to the owner, so the escalation buys write access without
---     buying cross-tenant access.
+-- ledger_app has SELECT only here. The trigger writes through a SECURITY
+-- DEFINER function owned by ledger_owner, so the totals cannot be edited by
+-- the application even by accident, and because FORCE ROW LEVEL SECURITY
+-- applies to the owner too, that escalation buys write access without buying
+-- cross-tenant access.
 --
 -- Trust in the cache comes from ledger.reconcile_balances(), which compares it
 -- against a full recomputation from the journal. See 0012_reporting.sql.

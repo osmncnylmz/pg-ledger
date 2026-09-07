@@ -115,10 +115,8 @@ export class Database {
   }
 
   /**
-   * Apply every migration that has not been applied yet.
-   *
-   * Re-running is a no-op. A migration whose file changed after it was
-   * applied is an error, not a silent skip: a schema that does not match its
+   * Re-running is a no-op. A migration whose file changed after it was applied
+   * is an error and not a silent skip: a schema that does not match its
    * source is the one thing worse than a schema that failed to deploy.
    */
   async migrate(): Promise<AppliedMigration[]> {

@@ -1,12 +1,10 @@
--- 0011_posting_api.sql
---
 -- The write API: post_entry and reverse_entry.
 --
--- These functions are deliberately thin. They resolve account codes, shape
--- the rows and hand them to the tables. They do not check that the entry
--- balances, that the currencies agree, or that the period is open -- the
--- constraints and triggers own those questions, and a second copy of the rule
--- here would be a copy that can rot.
+-- These functions are thin. They resolve account codes, shape the rows and
+-- hand them to the tables. They do not check that the entry balances, that the
+-- currencies agree, or that the period is open -- the constraints and triggers
+-- own those questions, and a second copy of the rule here would be a copy that
+-- can rot.
 --
 -- Invariant #5, idempotent posting, lives here. It is one INSERT ... ON
 -- CONFLICT DO NOTHING against the unique index on (tenant_id,

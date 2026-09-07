@@ -1,8 +1,8 @@
 /**
  * Invariant #5 -- posting is idempotent.
  *
- * Mechanism: the unique constraint on (tenant_id, idempotency_key) in
- * sql/0005_journal.sql, used by INSERT ... ON CONFLICT DO NOTHING in
+ * It comes down to the unique constraint on (tenant_id, idempotency_key) in
+ * sql/0005_journal.sql, driving an INSERT ... ON CONFLICT DO NOTHING inside
  * ledger.post_entry (sql/0011_posting_api.sql).
  *
  * A note on "concurrent". PGlite is a single embedded backend, so the
@@ -41,7 +41,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  await fixture.close()
+  await fixture.db.close()
 })
 
 async function entryCount(tenantId: string, key: string): Promise<number> {
@@ -113,7 +113,6 @@ describe('invariant 5: idempotent posting', () => {
     expect(results.filter((r) => r.created)).toHaveLength(1)
     expect(await entryCount(tenant.id, 'charge-storm')).toBe(1)
 
-    // And the books moved exactly once.
     const [cash] = await fixture.ledger.currentBalances(tenant.id)
     expect(cash?.code).toBe('1000')
     expect(cash?.debitTotal).toBe('85.0000') // charge-abc + charge-storm

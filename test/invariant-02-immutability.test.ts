@@ -1,12 +1,10 @@
 /**
- * Invariant #2 -- the journal is append-only.
+ * Invariant #2 -- the journal is append-only. Triggers in
+ * sql/0007_immutability.sql, withheld grants in sql/0090_security.sql.
  *
- * Mechanism: sql/0007_immutability.sql (triggers) plus the privilege grants
- * in sql/0090_security.sql.
- *
- * The interesting attacks are run as `ledger_owner`, the role that owns the
- * tables. It holds every privilege on them, so a refusal cannot be attributed
- * to a missing GRANT: it is the trigger, and a trigger cannot be granted away.
+ * The interesting attacks run as `ledger_owner`, the role that owns the
+ * tables. It holds every privilege on them, so a refusal here cannot be blamed
+ * on a missing GRANT: it is the trigger, and a trigger cannot be granted away.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -37,7 +35,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  await fixture.close()
+  await fixture.db.close()
 })
 
 describe('invariant 2: immutability', () => {
@@ -96,7 +94,7 @@ describe('invariant 2: immutability', () => {
   })
 
   it('does not even grant the application role permission to try', async () => {
-    // Defence in depth: the trigger is the guarantee, the grant is the fence.
+    // the grant is the fence; 0007's trigger is the wall behind it
     const attack = fixture.db.asTenant(tenant.id, (session) =>
       session.query('delete from ledger.journal_entries where id = $1', [entryId]),
     )
@@ -128,7 +126,6 @@ describe('invariant 2: immutability', () => {
     expect(reversal?.reversesEntryId).toBe(entryId)
     expect(reversal?.description).toBe('Reversal of: Consulting fee')
 
-    // Mirror image: same accounts and amounts, opposite directions.
     expect(reversal?.lines.map((l) => [l.accountCode, l.direction, l.amount])).toEqual([
       ['1100', 'credit', '2400.0000'],
       ['4100', 'debit', '2400.0000'],

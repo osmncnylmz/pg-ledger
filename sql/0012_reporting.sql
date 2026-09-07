@@ -1,8 +1,6 @@
--- 0012_reporting.sql
---
--- The read side. Everything here is a set-returning function so that the
--- reports are versioned with the schema rather than reimplemented in every
--- service that needs them.
+-- The read side. Everything here is a set-returning function, so the reports
+-- are versioned with the schema instead of being reimplemented in every
+-- service that wants them.
 --
 -- Row level security already restricts these functions to the session's
 -- tenant, so the p_tenant_id argument is strictly a guard: without it, asking
@@ -24,12 +22,9 @@ begin
 end
 $$;
 
--- ---------------------------------------------------------------------------
--- Trial balance
--- ---------------------------------------------------------------------------
 -- Every account with movement up to p_as_of, in debit/credit columns. The sum
 -- of the debit column always equals the sum of the credit column, per
--- currency -- that is invariant #1 observed from the outside.
+-- currency: invariant #1 observed from the outside.
 
 create function ledger.trial_balance(
   p_tenant_id uuid,
@@ -83,9 +78,6 @@ begin
 end
 $$;
 
--- ---------------------------------------------------------------------------
--- Account statement
--- ---------------------------------------------------------------------------
 -- Every posting to one account, with a running balance carried in the sign of
 -- the account's normal balance: a debit increases an asset and decreases a
 -- liability, without the caller having to remember which is which.
@@ -187,16 +179,13 @@ begin
 end
 $$;
 
--- ---------------------------------------------------------------------------
--- Chart-of-accounts rollup
--- ---------------------------------------------------------------------------
--- Two recursive CTEs. The first walks the tree downwards from its roots to
--- attach a depth and a path to every account, which is what makes an indented
--- report possible. The second is the transitive closure ancestor -> all
--- descendants, which is what lets a parent's subtotal be a single grouped sum
--- instead of an N+1 walk from the application.
-
--- A named composite type so that balance_sheet and income_statement can be
+-- The rollup is two recursive CTEs. The first walks the tree downwards from
+-- its roots to attach a depth and a path to every account, which is what makes
+-- an indented report possible. The second is the transitive closure
+-- ancestor -> all descendants, which is what lets a parent's subtotal be a
+-- single grouped sum instead of an N+1 walk from the application.
+--
+-- The row type is named so that balance_sheet and income_statement can be
 -- one-line wrappers returning the same shape.
 create type ledger.rollup_row as (
   account_id     uuid,
@@ -329,8 +318,8 @@ as $$
 $$;
 
 -- Assets = Liabilities + Equity + (Revenue - Expenses), per currency.
--- The difference column is arithmetically forced to zero by invariant #1;
--- reporting it makes that visible rather than assumed.
+-- The difference column is arithmetically forced to zero by invariant #1.
+-- Printing it anyway turns an assumption into an observation.
 create function ledger.accounting_equation(
   p_tenant_id uuid,
   p_as_of     timestamptz default now()
@@ -381,10 +370,6 @@ begin
    order by t.currency;
 end
 $$;
-
--- ---------------------------------------------------------------------------
--- The balance cache, and the proof that it can be trusted
--- ---------------------------------------------------------------------------
 
 create function ledger.current_balances(p_tenant_id uuid)
 returns table (

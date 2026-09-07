@@ -1,29 +1,19 @@
--- 0090_security.sql
---
 -- Invariant #3: tenant isolation.
 --
 -- Every tenant-scoped table gets a policy that reduces to one equality test
--- against ledger.current_tenant_id(). Two details matter more than the
--- policies themselves:
+-- against ledger.current_tenant_id(), which 0001 defines and which returns
+-- NULL when nobody has said who they are.
 --
---   * FORCE ROW LEVEL SECURITY. Without it, the table owner silently bypasses
---     every policy. Since a migration, a maintenance script and any
---     SECURITY DEFINER function all run as the owner, "we have RLS" without
---     FORCE means "we have RLS except in exactly the code paths that touch
---     the most rows".
---
---   * Fail-closed defaults. current_tenant_id() returns NULL when app.tenant_id
---     is unset, every predicate evaluates to NULL, and a session that forgot to
---     identify itself reads zero rows and writes none. The failure mode of a
---     forgotten SET is an empty result, never another tenant's books.
+-- FORCE ROW LEVEL SECURITY is the line to read twice. A table owner bypasses
+-- every policy on that table unless it is set, and the code that runs as the
+-- owner is not the marginal code -- it is the migrations, the maintenance
+-- scripts and every SECURITY DEFINER function in this schema. Enabling RLS
+-- without forcing it protects the queries that touch the fewest rows and
+-- exempts the ones that touch the most.
 --
 -- Privileges are the outer layer. ledger_app holds no DELETE anywhere and no
--- UPDATE on the journal, so the immutability triggers in 0007 are a second
--- line of defence rather than the only one.
-
--- --------------------------------------------------------------------------
--- Policies
--- --------------------------------------------------------------------------
+-- UPDATE on the journal, so the immutability triggers in 0007 are the second
+-- of two answers, not the only one.
 
 alter table ledger.tenants enable row level security;
 alter table ledger.tenants force row level security;
@@ -72,13 +62,9 @@ create policy account_balances_tenant_isolation on ledger.account_balances
   using (tenant_id = ledger.current_tenant_id())
   with check (tenant_id = ledger.current_tenant_id());
 
--- --------------------------------------------------------------------------
--- Ownership
--- --------------------------------------------------------------------------
--- Migrations run as a superuser, so everything created so far is owned by
--- that superuser. Hand it all to ledger_owner, which is a plain role: it is
--- subject to FORCE ROW LEVEL SECURITY, and it is what SECURITY DEFINER
--- functions will run as.
+-- Migrations run as a superuser, so everything created so far is owned by that
+-- superuser. Hand it all to ledger_owner, which is a plain role: subject to
+-- FORCE ROW LEVEL SECURITY, and what the SECURITY DEFINER functions run as.
 
 alter schema ledger owner to ledger_owner;
 
@@ -123,10 +109,6 @@ begin
   end loop;
 end
 $$;
-
--- --------------------------------------------------------------------------
--- Privileges
--- --------------------------------------------------------------------------
 
 grant usage on schema ledger to ledger_app;
 

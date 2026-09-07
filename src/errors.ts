@@ -1,16 +1,16 @@
 /**
  * Typed errors.
  *
- * Enforcement lives in the database, so every rule violation arrives here as
- * a PostgreSQL error. Leaking those to callers would tie application code to
- * driver internals and to SQLSTATE trivia, so each one is translated into a
- * named error class. The translation is the *only* thing this module does:
- * it never decides whether something is allowed, it only names the refusal.
+ * Enforcement lives in the database, so every rule violation arrives here as a
+ * PostgreSQL error. Leaking those to callers would tie application code to
+ * driver internals and SQLSTATE trivia, so each one gets a named class.
+ * Naming the refusal is all this module does; it never decides whether
+ * something is allowed.
  *
  * The schema raises its own rules in SQLSTATE class `LG`, which PostgreSQL
- * reserves for user-defined conditions. Structural rules -- check
- * constraints, foreign keys, exclusion constraints -- arrive with standard
- * SQLSTATEs and are recognised by constraint name.
+ * reserves for user-defined conditions. Structural rules -- checks, foreign
+ * keys, unique and exclusion constraints -- arrive with standard SQLSTATEs and
+ * are recognised by constraint name instead.
  */
 
 /** Shape of the error object produced by the PostgreSQL wire protocol. */
@@ -51,7 +51,7 @@ export class LedgerError extends Error {
 export class UnbalancedEntryError extends LedgerError {}
 /** UPDATE, DELETE or TRUNCATE was attempted on a posted journal row. */
 export class ImmutableJournalError extends LedgerError {}
-/** posted_at falls inside a period whose state is `closed`. */
+/** The entry's date lands in a period somebody has closed. */
 export class ClosedPeriodError extends LedgerError {}
 /** The tenant requires periods and posted_at falls outside every one of them. */
 export class NoOpenPeriodError extends LedgerError {}

@@ -1,17 +1,18 @@
 /**
  * Runs the HTTP API.
  *
- *   npm run serve
+ *   npm run serve                                   # 127.0.0.1:3000
+ *   HOST=0.0.0.0 PORT=8080 npm run serve
+ *   LEDGER_DATA_DIR=./books npm run serve
  *
- * With no LEDGER_DATA_DIR the database is in-process and in-memory, which is
+ * Without LEDGER_DATA_DIR the database is in-process and in-memory, which is
  * the right thing for a demo and the wrong thing for anything else; point that
  * variable at a directory to keep the books between restarts.
  *
- * There is no route that creates a tenant. Provisioning inserts into
- * ledger.tenants, which ledger_app has no INSERT on -- it runs as the
- * administrative role, which the API deliberately never assumes. So an empty
- * database gets one demo tenant here, and its id is logged for the reader who
- * wants to try the curl in the README.
+ * An empty database gets the demo tenant and chart below before the server
+ * binds, and every tenant id is logged at startup, because you need one for
+ * the X-Tenant-Id header before you can do anything else. Provisioning goes
+ * through db.admin() and not through a route -- the README says why.
  */
 
 import { buildServer } from '../api/server.js'

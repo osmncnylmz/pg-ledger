@@ -1,5 +1,3 @@
--- 0008_period_guard.sql
---
 -- Invariant #4: nothing may be posted into a closed period.
 --
 -- The rule, precisely:
@@ -11,9 +9,9 @@
 --     is rejected. Periods are opt-in per tenant; a tenant that has committed
 --     to them cannot post outside the calendar it declared.
 --
--- This is a BEFORE ROW trigger rather than a deferred one on purpose: unlike
--- balance, the property is decidable from the single row being inserted, so
--- failing immediately gives the caller a better error and does less work.
+-- This is a BEFORE ROW trigger, not a deferred one: unlike balance, the
+-- property is decidable from the single row being inserted, so failing
+-- immediately gives the caller a better error and does less work.
 
 create function ledger.assert_open_period() returns trigger
   language plpgsql

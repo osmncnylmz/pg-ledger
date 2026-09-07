@@ -1,12 +1,12 @@
 /**
- * A small, honest benchmark.
+ * Timings.
  *
- * This measures PGlite -- PostgreSQL 18 compiled to WebAssembly, running
- * in-process on a single connection. It is the same SQL a server would run,
- * but it is not a server: there is no network round trip, no connection pool,
- * no concurrency, and WASM is meaningfully slower than a native build. Treat
- * the numbers as a floor for "is the schema shaped sensibly", not as a
- * throughput figure for production.
+ * What this measures is PGlite: PostgreSQL 18 compiled to WebAssembly, running
+ * in-process on one connection. Same SQL a server would run, but it is not a
+ * server -- no network round trip, no connection pool, no concurrency, and
+ * WASM is meaningfully slower than a native build. The numbers are good for
+ * comparing one query shape against another and useless as a production
+ * throughput figure.
  *
  *   npm run bench
  */
@@ -54,7 +54,7 @@ async function main(): Promise<void> {
 
   const [db, migrateMs] = await timed(() => Database.create())
   const ledger = new Ledger(db)
-  // Counted rather than written down, so the line cannot drift from sql/.
+  // counted, not written down, so the line below cannot drift from sql/
   const migrationCount = (await loadMigrations()).length
   console.log(
     `\nschema bootstrap (initdb + ${migrationCount} migrations)`.padEnd(44) + `${ms(migrateMs)}`,

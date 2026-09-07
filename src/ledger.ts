@@ -1,16 +1,15 @@
 /**
  * The typed API over the schema.
  *
- * This class shapes arguments, names errors and maps snake_case rows onto
- * camelCase objects. What it deliberately does *not* do is check the
- * accounting: it never sums debits and credits, never compares currencies,
- * never asks whether a period is open. Those rules have exactly one
- * implementation and it is in SQL. A second copy here would be a copy that
- * drifts, and -- worse -- a copy that a psql session or a background job
- * written in another language would not run at all.
+ * Shapes arguments and maps snake_case rows onto camelCase objects. What it
+ * does not do is check the accounting: it never sums debits and credits, never
+ * compares currencies, never asks whether a period is open, never looks at
+ * whether an account has children. Those rules have one
+ * implementation and it is in SQL. A copy here would drift, and a psql
+ * session or someone else's Python worker would not run it anyway.
  *
- * The practical consequence is that the attack tests can bypass this class
- * entirely, write raw SQL, and still be refused.
+ * Which is why the attack tests can bypass this class entirely, write raw
+ * SQL, and still be refused.
  */
 
 import type { Database, LedgerRole, Row } from './database.js'
@@ -196,10 +195,6 @@ export class Ledger {
     this.db = db
   }
 
-  // -------------------------------------------------------------------------
-  // Provisioning
-  // -------------------------------------------------------------------------
-
   /** Creates a tenant. Runs as the administrative role; `ledger_app` cannot. */
   async provisionTenant(input: NewTenant): Promise<Tenant> {
     return this.db.admin(async (session) => {
@@ -299,10 +294,6 @@ export class Ledger {
     })
   }
 
-  // -------------------------------------------------------------------------
-  // Accounting periods
-  // -------------------------------------------------------------------------
-
   async createPeriod(tenantId: Uuid, period: NewPeriod): Promise<AccountingPeriod> {
     return this.db.asTenant(tenantId, async (session) => {
       const row = await session.one(
@@ -355,10 +346,6 @@ export class Ledger {
       return rows.map(asPeriod)
     })
   }
-
-  // -------------------------------------------------------------------------
-  // Posting
-  // -------------------------------------------------------------------------
 
   /**
    * Posts one journal entry.
@@ -470,10 +457,6 @@ export class Ledger {
     })
   }
 
-  // -------------------------------------------------------------------------
-  // Reports
-  // -------------------------------------------------------------------------
-
   async trialBalance(tenantId: Uuid, asOf: Date | string = new Date()): Promise<TrialBalanceRow[]> {
     return this.db.asTenant(tenantId, async (session) => {
       const rows = await session.query(
@@ -542,10 +525,6 @@ export class Ledger {
       return rows.map(asEquationRow)
     })
   }
-
-  // -------------------------------------------------------------------------
-  // The balance cache
-  // -------------------------------------------------------------------------
 
   async currentBalances(tenantId: Uuid): Promise<CachedBalanceRow[]> {
     return this.db.asTenant(tenantId, async (session) => {

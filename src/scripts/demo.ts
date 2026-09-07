@@ -146,7 +146,7 @@ async function main(): Promise<void> {
     })),
   )
 
-  heading('Balance sheet (recursive CTE rollup)')
+  heading('Balance sheet')
   table(
     (await ledger.balanceSheet(tenant.id, asOf)).map((r) => ({
       account: `${'  '.repeat(r.depth)}${r.code} ${r.name}`,
@@ -164,7 +164,7 @@ async function main(): Promise<void> {
     })),
   )
 
-  heading('Cash at bank, statement with running balance (window function)')
+  heading('Cash at bank -- statement')
   table(
     (await ledger.statement(tenant.id, '1000')).map((r) => ({
       date: r.postedAt.toISOString().slice(0, 10),
@@ -187,7 +187,7 @@ async function main(): Promise<void> {
     })),
   )
 
-  heading('Attacks on the books, all refused by the database')
+  heading('Attacks on the books')
   await refused('unbalanced entry (debits 100.00, credits 99.99)', () =>
     ledger.postEntry({
       tenantId: tenant.id,

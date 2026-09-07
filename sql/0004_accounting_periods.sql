@@ -1,13 +1,11 @@
--- 0004_accounting_periods.sql
---
 -- Accounting periods, stored as a half-open timestamptz range.
 --
--- The interesting constraint is accounting_periods_no_overlap: a GiST
+-- accounting_periods_no_overlap is the constraint worth looking at: a GiST
 -- exclusion constraint that makes overlapping periods within one tenant
--- structurally impossible. Doing this with a trigger would be racy -- two
--- concurrent transactions could each look, see no overlap, and both insert.
--- An exclusion constraint takes the same index locks a unique constraint
--- does, so the second writer blocks and then fails.
+-- structurally impossible. A trigger doing the same job would be racy -- two
+-- concurrent transactions each look, see no overlap, and both insert. An
+-- exclusion constraint takes the same index locks a unique constraint does, so
+-- the second writer blocks and then fails.
 
 create table ledger.accounting_periods (
   id          uuid primary key default gen_random_uuid(),
@@ -25,8 +23,8 @@ create table ledger.accounting_periods (
     not isempty(period) and not lower_inf(period) and not upper_inf(period)
   ),
 
-  -- closed_at is set by a trigger; the check keeps the two columns honest
-  -- even if the trigger is dropped.
+  -- closed_at is set by a trigger. The check makes the two columns
+  -- inseparable even if that trigger is ever dropped.
   constraint accounting_periods_closed_at_agrees check (
     (state = 'closed') = (closed_at is not null)
   ),

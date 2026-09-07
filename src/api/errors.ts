@@ -2,11 +2,12 @@
  * Ledger errors to HTTP.
  *
  * `src/errors.ts` names a refusal; this table decides what a refusal is worth
- * on the wire. The split matters: 4xx means the caller can fix it, 422 means
- * the request was well formed but the books would not accept it, and 5xx means
- * the deployment is wrong. `InsufficientPrivilegeError` is absent on purpose --
- * it means ledger_app was granted the wrong privileges, which is an operator's
- * problem and not something to describe to a client.
+ * on the wire. 4xx means the caller can fix it, 422 that the request was well
+ * formed but the books would not accept it, 5xx that the deployment is wrong.
+ *
+ * `InsufficientPrivilegeError` is absent on purpose. A caller can do nothing
+ * about ledger_app holding the wrong grants, and should not be handed the
+ * details of one, so it falls through to the bare 500 below.
  */
 
 import {
@@ -61,40 +62,34 @@ export class ApiError extends Error {
 /** A class, the status it deserves, the wire code, and a message of last resort. */
 type Mapping = readonly [new (...args: never[]) => LedgerError, number, string, string]
 
-// 422: the request was understood and the books refused it.
-const UNPROCESSABLE: readonly Mapping[] = [
+const MAPPINGS: readonly Mapping[] = [
+  // 422: understood, and the books refused it.
   [UnbalancedEntryError, 422, 'unbalanced_entry', 'debits and credits do not agree'],
-  [ClosedPeriodError, 422, 'closed_period', 'that accounting period is closed'],
+  [ClosedPeriodError, 422, 'closed_period', 'the period covering that date is closed'],
   [NoOpenPeriodError, 422, 'no_open_period', 'no open period covers that date'],
-  [MixedCurrencyError, 422, 'mixed_currency', 'a line may not leave the entry currency'],
-  [NonPositiveAmountError, 422, 'non_positive_amount', 'an amount must be above zero'],
-  [RollupAccountError, 422, 'rollup_account', 'only leaf accounts can be posted to'],
-  [InactiveAccountError, 422, 'inactive_account', 'that account is inactive'],
-  [AccountNotFoundError, 422, 'account_not_found', 'no such account in this tenant'],
-  [AccountCycleError, 422, 'account_cycle', 'that would make the chart a cycle'],
-]
+  [MixedCurrencyError, 422, 'mixed_currency', "a line's currency must be the entry's currency"],
+  [NonPositiveAmountError, 422, 'non_positive_amount', 'amounts must be above zero; direction carries the sign'],
+  [RollupAccountError, 422, 'rollup_account', 'that account has children, so it is a rollup and cannot be posted to'],
+  [InactiveAccountError, 422, 'inactive_account', 'account is inactive'],
+  [AccountNotFoundError, 422, 'account_not_found', 'no such account in this chart'],
+  [AccountCycleError, 422, 'account_cycle', 'the parent link would close a loop'],
 
-// 409: the request quarrels with something already posted.
-const CONFLICT: readonly Mapping[] = [
-  [AccountTypeLockedError, 409, 'account_type_locked', 'a posted-to account keeps its type'],
-  [DuplicateIdempotencyKeyError, 409, 'duplicate_idempotency_key', 'that key is taken'],
-  [AlreadyReversedError, 409, 'already_reversed', 'that entry is already reversed'],
+  // 409: quarrels with something already posted.
+  [AccountTypeLockedError, 409, 'account_type_locked', 'an account with postings keeps its type'],
+  [DuplicateIdempotencyKeyError, 409, 'duplicate_idempotency_key', 'idempotency key already in use'],
+  [AlreadyReversedError, 409, 'already_reversed', 'the entry already has a reversal'],
   [ImmutableJournalError, 409, 'immutable_journal', 'posted rows are append-only'],
   [OverlappingPeriodError, 409, 'overlapping_period', 'periods may not overlap'],
+
+  [InvalidPayloadError, 400, 'invalid_payload', 'lines must be a JSON array'],
+  [EntryNotFoundError, 404, 'entry_not_found', 'no such entry'],
+  [PeriodNotFoundError, 404, 'period_not_found', 'no such period'],
+  [TenantMismatchError, 403, 'tenant_mismatch', 'the session is scoped to a different tenant'],
+  [TenantIsolationError, 403, 'tenant_isolation', 'row belongs to another tenant'],
+  [CrossTenantReferenceError, 403, 'cross_tenant_reference', 'that reference points outside this tenant'],
 ]
 
-const ELSEWHERE: readonly Mapping[] = [
-  [InvalidPayloadError, 400, 'invalid_payload', 'the posting payload was misshapen'],
-  [EntryNotFoundError, 404, 'entry_not_found', 'no such entry in this tenant'],
-  [PeriodNotFoundError, 404, 'period_not_found', 'no such period in this tenant'],
-  [TenantMismatchError, 403, 'tenant_mismatch', 'that request names another tenant'],
-  [TenantIsolationError, 403, 'tenant_isolation', 'that row belongs to another tenant'],
-  [CrossTenantReferenceError, 403, 'cross_tenant_reference', 'that row is not this tenant'],
-]
-
-const BY_CONSTRUCTOR = new Map<unknown, Mapping>(
-  [...UNPROCESSABLE, ...CONFLICT, ...ELSEWHERE].map((mapping) => [mapping[0], mapping]),
-)
+const BY_CONSTRUCTOR = new Map<unknown, Mapping>(MAPPINGS.map((m) => [m[0], m]))
 
 export interface Described {
   status: number
@@ -149,7 +144,7 @@ export function describeError(error: unknown): Described {
     // Messages raised in SQLSTATE class LG are written by this project's own
     // migrations and say something a caller can act on -- which entry, which
     // account, by how much. Everything else arrived from PostgreSQL itself and
-    // is answered with the message above rather than forwarded.
+    // is answered with the message above, not forwarded.
     const ours = error.sqlState?.startsWith('LG') === true
     return {
       status,

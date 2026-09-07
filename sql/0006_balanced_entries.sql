@@ -1,30 +1,18 @@
--- 0006_balanced_entries.sql
---
 -- Invariant #1: for every journal entry, SUM(debits) = SUM(credits).
 --
--- Why this cannot be a normal row-level trigger
--- ---------------------------------------------
--- A BEFORE/AFTER ROW trigger fires while the statement is running. At the
--- moment the first line of a two-line entry is inserted the entry is, by
--- construction, unbalanced -- there is exactly one line and it is a debit.
--- An ordinary trigger would reject every entry ever written, unless callers
--- were forced to insert all lines in a single statement, which is a rule the
--- database cannot enforce and which the moment you allow "add one more line
--- to this entry" collapses anyway.
+-- The check cannot run per row. A BEFORE/AFTER ROW trigger fires mid-statement,
+-- while a two-line entry still has only its debit, so it would refuse every
+-- entry ever written. DEFERRABLE INITIALLY DEFERRED holds the check until
+-- COMMIT, when the transaction is done writing. The README works through why
+-- "insert both lines in one statement" is not an acceptable alternative.
 --
--- A CONSTRAINT TRIGGER declared DEFERRABLE INITIALLY DEFERRED fires at
--- COMMIT instead, after every statement in the transaction has run. Lines may
--- be inserted one at a time, in any order, by any number of statements. The
--- books are allowed to be transiently unbalanced *inside* a transaction and
--- are never allowed to be unbalanced *between* transactions -- which is
--- exactly the accounting rule.
+-- Two triggers, because there are two ways to break balance:
 --
--- Two triggers are installed, because there are two ways to break balance:
---
---   * on journal_entries -- catches an entry created with no lines, or with
---     lines that do not add up.
---   * on journal_lines   -- catches a line appended to an entry that was
---     already balanced, in this or any later transaction.
+--   * on journal_entries -- an entry created with no lines, or with lines that
+--     do not add up.
+--   * on journal_lines   -- a line appended to an entry that was already
+--     balanced, in this or any later transaction. A trigger on the entry table
+--     alone never fires for that one.
 
 create function ledger.assert_entry_balanced() returns trigger
   language plpgsql

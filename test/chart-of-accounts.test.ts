@@ -1,10 +1,10 @@
 /**
  * The chart of accounts defends its own shape.
  *
- * Mechanisms: sql/0003_accounts.sql (the generated normal_balance column, the
- * three-column self foreign key, the cycle constraint trigger),
- * sql/0009_postable_accounts.sql (postings only to leaves) and
- * sql/0013_account_type_stability.sql (a posted-to account keeps its type).
+ * Spread over three migrations: 0003 carries the generated normal_balance
+ * column, the three-column self foreign key and the cycle constraint trigger;
+ * 0009 keeps postings on the leaves; 0013 freezes the type of an account that
+ * has been posted to.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -27,7 +27,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  await fixture.close()
+  await fixture.db.close()
 })
 
 describe('normal balance', () => {
@@ -175,11 +175,9 @@ describe('postable accounts', () => {
   })
 
   it('refuses a parent code that is not in the chart of accounts', async () => {
-    // A scalar subquery that finds nothing yields NULL, and NULL is a legal
-    // parent_id -- so without an explicit lookup a mistyped parent code would
-    // silently create a second root account and every rollup below it would
-    // be wrong. Nothing in the schema can catch that, because the row it
-    // produces is perfectly valid.
+    // The schema cannot catch this one: the row a typo produces is a perfectly
+    // legal root account. See createAccounts in src/ledger.ts for why the
+    // parent lookup is its own statement.
     await expect(
       fixture.ledger.createAccounts(tenant.id, [
         { code: '1500', name: 'Prepayments', type: 'asset', parentCode: '1-typo' },
@@ -199,12 +197,10 @@ describe('postable accounts', () => {
 })
 
 describe('an account that has been posted to', () => {
-  // normal_balance is generated from type, so a reclassification re-signs
-  // every figure the account has ever contributed to a report -- and moves it
-  // between the balance sheet and the income statement -- without touching a
-  // single append-only journal row. The three-column self FK stops the easy
-  // case (a child whose type stops matching its parent's); the two cases
-  // below are the ones it cannot see, and they are why 0013 exists.
+  // Reclassifying re-signs an account's whole history, because normal_balance
+  // is generated from type. The self FK already refuses the easy version of
+  // this attack; the two below are the ones it is blind to, and the reason
+  // 0013 exists at all.
   it('cannot be reclassified when it is a root with no children', async () => {
     // No parent and no children, so the self FK has nothing to check.
     await fixture.ledger.createAccounts(tenant.id, [
@@ -238,8 +234,8 @@ describe('an account that has been posted to', () => {
   })
 
   it('cannot be reclassified by moving its whole subtree in one statement', async () => {
-    // Parent and children change together, so every row still agrees with
-    // every other row and the self FK passes. Only a trigger that knows the
+    // Parent and children move together, so nothing ends up disagreeing with
+    // anything and the self FK is satisfied. Only a trigger that knows the
     // account has postings can refuse this.
     const attack = fixture.db.asTenant(tenant.id, (session) =>
       session.query(

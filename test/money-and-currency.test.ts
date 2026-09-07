@@ -1,12 +1,3 @@
-/**
- * Money is numeric, amounts are magnitudes, and an entry has one currency.
- *
- * Mechanisms: the numeric(20,4) columns and the `journal_lines_amount_positive`
- * check in sql/0005_journal.sql, the `journal_lines_currency_matches_entry`
- * composite foreign key in the same file, and the `ledger.currency_code`
- * domain in sql/0001_foundation.sql.
- */
-
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { MixedCurrencyError, NonPositiveAmountError } from '../src/errors.js'
@@ -21,7 +12,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  await fixture.close()
+  await fixture.db.close()
 })
 
 async function rawLine(
@@ -113,7 +104,7 @@ describe('amounts', () => {
 
     // numeric(20,4) rounds a fifth decimal rather than storing it, which is a
     // silent change of value. Rounding at the boundary is a deliberate schema
-    // decision, so pin it down rather than leave it to chance.
+    // decision, so pin it down and do not leave it to chance.
     const rounded = await fixture.db.asTenant(tenant.id, (session) =>
       session.one<{ amount: string }>("select 0.00005::numeric(20,4) as amount"),
     )
@@ -170,7 +161,6 @@ describe('currency', () => {
     expect(byCurrency.EUR).toBeDefined()
     expect(byCurrency.EUR).not.toBe(byCurrency.USD)
 
-    // And the trial balance nets to zero within each currency, separately.
     const trial = await fixture.ledger.trialBalance(tenant.id)
     for (const currency of ['EUR', 'USD']) {
       const rows = trial.filter((r) => r.currency === currency)

@@ -1,17 +1,13 @@
--- 0003_accounts.sql
---
 -- The chart of accounts: a per-tenant tree of accounts.
 --
--- Two things worth noticing here are enforced declaratively, with no trigger:
+-- normal_balance is a STORED GENERATED column, so it cannot drift from the
+-- account type -- it is not writable at all.
 --
---   * normal_balance is a STORED GENERATED column. It cannot drift from the
---     account type because it is not writable at all.
---
---   * accounts_parent_same_tenant_and_type is a three-column self foreign key.
---     It simultaneously guarantees that a parent account lives in the same
---     tenant *and* has the same account type. Because the default MATCH
---     SIMPLE semantics treat a row with any NULL referencing column as
---     satisfying the constraint, root accounts (parent_id IS NULL) are free.
+-- accounts_parent_same_tenant_and_type is a three-column self foreign key, and
+-- one constraint therefore guarantees both that a parent account lives in the
+-- same tenant *and* that it has the same account type. Root accounts
+-- (parent_id IS NULL) are free, because the default MATCH SIMPLE semantics
+-- treat a row with any NULL referencing column as satisfying the constraint.
 
 create table ledger.accounts (
   id              uuid primary key default gen_random_uuid(),

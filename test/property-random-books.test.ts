@@ -1,16 +1,17 @@
 /**
- * Property test: whatever you throw at the books, they stay consistent.
+ * Property test. The generator below builds 300 entries out of one to three
+ * debit lines and one or two credits over the 11 leaf codes in
+ * CHART_OF_ACCOUNTS, in EUR/USD/GBP, dated somewhere in 2026, at amounts
+ * between 0.01 and 9999.99; the last credit line absorbs the remainder, so
+ * every entry balances by construction and only the shape varies. Then about
+ * one entry in ten gets reversed.
  *
- * Three hundred randomly generated entries -- random dates, accounts,
- * currencies, line counts and amounts, plus a scattering of reversals --
- * followed by the three properties that must hold for any set of books:
- *
- *   1. the trial balance nets to exactly zero, per currency;
- *   2. the accounting equation holds, per currency;
- *   3. the incrementally maintained cache equals a full recomputation.
- *
- * The generator is seeded, so a failure is reproducible from the seed printed
- * in the test name.
+ * Randomness comes from seededRandom(SEED), a plain LCG -- no fast-check, no
+ * shrinking. The seed is in the describe() name, so a red build tells you
+ * which books to rebuild: put that number in SEED and the same 300 entries
+ * come back. Change ENTRY_COUNT or the CURRENCIES list and the whole sequence
+ * moves, which is worth knowing before you widen the generator to chase a
+ * failure.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -128,7 +129,7 @@ beforeAll(async () => {
 }, 120_000)
 
 afterAll(async () => {
-  await fixture.close()
+  await fixture.db.close()
 })
 
 describe(`property: ${ENTRY_COUNT} random entries (seed ${SEED})`, () => {

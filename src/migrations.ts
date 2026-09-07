@@ -1,10 +1,7 @@
 /**
- * Migration loading.
- *
- * The `sql/` directory is the schema. Files are applied in filename order,
- * each in its own transaction, and recorded with a SHA-256 of their contents
- * so that a file edited after it was applied is reported instead of silently
- * ignored.
+ * The `sql/` directory is the schema. Files load in filename order and carry a
+ * SHA-256 of their contents, so a file edited after it was applied gets
+ * reported rather than silently ignored.
  */
 
 import { createHash } from 'node:crypto'
@@ -23,10 +20,8 @@ export interface Migration {
 const FIRST_MIGRATION = '0001_foundation.sql'
 
 /**
- * Find the `sql/` directory shipped with the package.
- *
- * Walks up from this module, so it resolves the same way whether the code is
- * running from `src/` under vitest or from `dist/` after a build.
+ * Walks up from this module, so `sql/` resolves the same way whether the code
+ * is running from `src/` under vitest or from `dist/` after a build.
  */
 export async function findMigrationsDir(from = fileURLToPath(import.meta.url)): Promise<string> {
   let dir = dirname(from)

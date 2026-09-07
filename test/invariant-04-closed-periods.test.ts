@@ -1,11 +1,3 @@
-/**
- * Invariant #4 -- nothing is posted into a closed period.
- *
- * Mechanism: sql/0004_accounting_periods.sql (the periods table and its GiST
- * exclusion constraint) and sql/0008_period_guard.sql (the BEFORE INSERT
- * trigger on journal_entries).
- */
-
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import {
@@ -47,7 +39,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  await fixture.close()
+  await fixture.db.close()
 })
 
 describe('invariant 4: closed periods', () => {

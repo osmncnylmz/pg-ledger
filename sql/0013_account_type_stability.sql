@@ -1,5 +1,3 @@
--- 0013_account_type_stability.sql
---
 -- An account's type is fixed once it has been posted to.
 --
 -- normal_balance is GENERATED ALWAYS from type, so changing the type of an

@@ -1,9 +1,9 @@
 /**
  * Invariant #3 -- tenants cannot see or touch each other.
  *
- * Mechanism: sql/0090_security.sql. Row-level security policies keyed on
+ * sql/0090_security.sql: row-level security policies keyed on
  * ledger.current_tenant_id(), which reads the app.tenant_id GUC, plus FORCE
- * ROW LEVEL SECURITY so the table owner is not exempt.
+ * ROW LEVEL SECURITY so that the table owner is not exempt either.
  *
  * Cross-tenant *references* are a separate problem from cross-tenant *reads*:
  * PostgreSQL runs referential-integrity checks with row security bypassed, so
@@ -57,7 +57,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  await fixture.close()
+  await fixture.db.close()
 })
 
 describe('invariant 3: tenant isolation', () => {

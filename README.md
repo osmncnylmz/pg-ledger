@@ -1,37 +1,28 @@
 # pg-ledger
 
-**A double-entry ledger where PostgreSQL enforces the accounting.**
+A double-entry ledger where PostgreSQL enforces the accounting. Every rule that
+makes a set of books correct — entries balance, posted rows are immutable,
+tenants are isolated, closed periods stay closed, a retried payment posts
+once — lives in the database as a constraint, a trigger or a policy. Not in a
+service, not in an ORM hook. In the schema.
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![PostgreSQL 18](https://img.shields.io/badge/PostgreSQL-18-336791.svg)](https://www.postgresql.org/)
-[![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](tsconfig.json)
-[![Node >= 22](https://img.shields.io/badge/node-%3E%3D22-5fa04e.svg)](package.json)
+Financial software usually enforces its accounting in application code and then
+finds out what that means. A background job written by a different team skips
+the service layer. A data fix is typed straight into `psql` at 2am. A migration
+backfills a column and forgets that debits have to move with credits. An
+idempotency check does `SELECT` then `INSERT`, and two concurrent webhook
+deliveries slip between them. None of these is a bug the application-layer rule
+can see, because the write never went through the application layer.
 
-Every rule that makes a set of books correct — entries balance, posted rows are
-immutable, tenants are isolated, closed periods stay closed, a retried payment
-posts once — lives in the database as a constraint, a trigger or a policy. Not
-in a service. Not in an ORM hook. In the schema.
+The database is the component every writer has to pass through, so the rules go
+there and the tests then try to break them. Each invariant below has a test
+written as an attack: raw SQL running as the application role — and, for the
+immutability tests, as the role that owns the tables — trying to corrupt the
+books. The books win.
 
-## Why this exists
-
-Financial software usually enforces its accounting in application code, and
-then discovers what that means. A background job written by a different team
-skips the service layer. A data fix is typed straight into `psql` at 2am. A
-migration backfills a column and forgets that debits have to move with credits.
-An idempotency check does `SELECT` then `INSERT` and two concurrent webhook
-deliveries slip between them. Every one of these is a bug the application-layer
-rule cannot see, because the write never went through the application layer.
-
-The database is the one component every writer has to pass through. So this
-repository puts the rules there and then tries to break them. Each invariant
-below has a test written as an *attack*: raw SQL, running as the application
-role — and for the immutability tests, as the role that **owns the tables** —
-trying to corrupt the books. The books win.
-
-The result is small: 14 migrations, 7 tables (6 of them tenant-scoped, plus
-the migration ledger), 13 triggers, 6 row-security policies, 88 table
-constraints. The TypeScript on top is a typed client, not a rule engine — it
-can be deleted and the guarantees still hold.
+14 migrations, 7 tables (6 tenant-scoped, plus the migration ledger), 13
+triggers, 6 row-security policies, 88 table constraints. The TypeScript on top
+is a typed client, not a rule engine; delete it and the guarantees hold.
 
 ## The invariants
 
@@ -123,7 +114,7 @@ X-Tenant-Id: 53046129-ea53-45f1-9a2b-ae140b9b1094
 
 That value is set on the connection by `asTenant` for the duration of one
 transaction, so a request reaching for another tenant's entry is not filtered
-out by a `WHERE` clause in the route — the row is not visible to it at all. A
+out by a `WHERE` clause in the route; the row is not visible to it at all. A
 request with no header is refused before it reaches the database.
 
 | Method | Path | What it does |
@@ -138,8 +129,8 @@ request with no header is refused before it reaches the database.
 | `GET` | `/v1/reports/trial-balance` | `?asOf=` |
 
 There is no route that creates a tenant. Provisioning inserts into
-`ledger.tenants`, which `ledger_app` has no `INSERT` on — it runs as the
-administrative role, and the API never assumes it. On an empty database
+`ledger.tenants`, which `ledger_app` has no `INSERT` on; it runs as the
+administrative role, and the API never assumes that role. On an empty database
 `npm run serve` provisions one demo tenant and logs its id, which is where the
 `$TENANT` below comes from.
 
@@ -163,7 +154,7 @@ Amounts are decimal strings, or integers for whole units. A fractional JSON
 number is a 400: by the time the route sees `20000.10` it is a double and the
 cent has already gone, so accepting it would only hide that.
 
-Every refusal has one shape, and the status says whose problem it is — 400 the
+Every refusal has one shape, and the status says whose problem it is: 400 the
 request, 404 the address, 409 a conflict with what is already posted, 422 an
 accounting rule, 500 the deployment.
 
@@ -178,9 +169,9 @@ accounting rule, 500 the deployment.
 }
 ```
 
-## The most interesting code in the repository
+## The balance trigger
 
-Invariant #1 is enforced by this, and it is worth reading closely:
+Invariant #1 is this, and it is the piece worth reading closely:
 
 ```sql
 create function ledger.assert_entry_balanced() returns trigger
@@ -237,60 +228,59 @@ create constraint trigger journal_lines_keep_entry_balanced
   for each row execute function ledger.assert_entry_balanced();
 ```
 
-### Why a plain row-level trigger cannot do this
+### Deferring the check to COMMIT
 
-A `BEFORE`/`AFTER … FOR EACH ROW` trigger fires while the statement is
-running. At the moment the first line of a two-line entry is inserted, the
-entry is by construction unbalanced: there is one line and it is a debit. A
-normal trigger would reject **every entry ever written**.
+A `BEFORE`/`AFTER … FOR EACH ROW` trigger fires while the statement is running.
+At the moment the first line of a two-line entry is inserted, the entry is by
+construction unbalanced: there is one line and it is a debit. A normal trigger
+would reject every entry ever written.
 
 You could work around that by demanding that all lines arrive in one
-`INSERT … VALUES (…), (…)`. But that is a rule the database cannot enforce —
-nothing stops a second statement, or a second transaction, from appending one
-more line to a balanced entry afterwards — and it makes the rule a convention
-again, which is the thing this project is trying to avoid.
+`INSERT … VALUES (…), (…)`. But nothing stops a second statement, or a second
+transaction, from appending one more line to a balanced entry afterwards, so
+the workaround is a convention, not a rule, and conventions are the thing this
+project is trying to get away from.
 
 `CONSTRAINT TRIGGER … DEFERRABLE INITIALLY DEFERRED` fires at `COMMIT`, after
 every statement in the transaction has run. Lines may be inserted one at a
 time, in any order, by any number of statements. The books are allowed to be
-transiently unbalanced *inside* a transaction and are never allowed to be
-unbalanced *between* transactions — which is exactly the accounting rule, and
-exactly what [the first test](test/invariant-01-balanced-entries.test.ts)
-demonstrates by inserting one line, reading the books back mid-transaction to
-show they do not balance, and then inserting the second.
+transiently unbalanced *inside* a transaction and never between them, which is
+exactly the accounting rule.
+[The first test](test/invariant-01-balanced-entries.test.ts) demonstrates it:
+insert one line, read the books back mid-transaction to show they do not
+balance, then insert the second.
 
-Two triggers are installed because there are two ways to break balance: an
-entry created with no lines or with lines that do not add up (caught on
-`journal_entries`), and a line appended later to an entry that was already
-balanced and committed (caught on `journal_lines`). The second case is the one
-a single trigger on the entry table would silently miss.
+Balance breaks in two directions, so there are two triggers. The one on
+`journal_entries` catches an entry that arrives empty or whose lines never
+agreed. The one on `journal_lines` catches the other case: a line bolted onto
+an entry that had already balanced and committed. A single trigger on the entry
+table would never see that one, because the entry table was not written.
 
-### Why not enforce this in the application layer?
+### What a constraint buys over a service check
 
-Three reasons, in increasing order of how much they cost when you are wrong.
+Coverage first. An application-layer rule protects the writes that go through
+the application. Reporting jobs, data fixes, migrations, admin scripts, the
+other team's Python worker and a human with `psql` do not. A constraint covers
+every writer, forever, including the ones that do not exist yet.
 
-**Coverage.** An application-layer rule protects the writes that go through the
-application. Reporting jobs, data fixes, migrations, admin scripts, the other
-team's Python worker and a human with `psql` do not. A constraint covers every
-writer, forever, including the ones that do not exist yet.
+Then atomicity. "Check, then write" is two operations, and concurrency lives in
+the gap between them: two webhook deliveries for the same payment both `SELECT`,
+find nothing, and both `INSERT`. A unique index has no such gap: the second
+writer blocks on the index tuple and then loses. Same argument for
+non-overlapping accounting periods, which is why they are an `EXCLUDE`
+constraint and not a "does one overlap?" query.
 
-**Atomicity.** "Check, then write" is two operations, and concurrency lives in
-the gap between them. Two webhook deliveries for the same payment both `SELECT`
-and find nothing, and both `INSERT`. A unique index does not have that gap: the
-second writer blocks on the index tuple and then loses. The same argument
-applies to non-overlapping accounting periods, which is why they are an
-`EXCLUDE` constraint rather than a "does one overlap?" query.
+And provability, which is the one that matters most. An application check is
+true of the code path you read; a constraint is true of the data.
+`SELECT … FROM journal_lines GROUP BY entry_id HAVING sum(...) <> 0` cannot
+return a row — not "should not", *cannot*.
 
-**Provability.** An application check is true of the code path you read. A
-constraint is true of the data. `SELECT … FROM journal_lines GROUP BY entry_id
-HAVING sum(...) <> 0` cannot return a row — not "should not", *cannot*.
-
-The trade-off is real and worth stating: errors arrive as `SQLSTATE`s rather
-than as validation objects, some rules only surface at `COMMIT`, and the logic
-is written in SQL, which is harder to unit test in isolation and harder to
-reuse across databases. This repository accepts all three. The mapping layer in
-[`src/errors.ts`](src/errors.ts) pays down the first, and the test suite pays
-down the second and third by testing the rules where they actually live.
+The trade-off is real. Errors arrive as `SQLSTATE`s rather than validation
+objects, some rules only surface at `COMMIT`, and the logic is written in SQL,
+which is harder to unit test in isolation and harder to move to another
+database. This repository accepts all of that. The mapping layer in
+[`src/errors.ts`](src/errors.ts) pays down the first; the test suite pays down
+the rest by testing the rules where they actually live.
 
 ## Architecture
 
@@ -329,13 +319,13 @@ test/             one file per invariant, each written as an attack
                   plus api.test.ts, which drives the routes through inject
 ```
 
-There are two database roles. `ledger_owner` owns every object and is never
-used by the application. `ledger_app` is what the application connects as: no
-`DELETE` anywhere, no `UPDATE` on the journal, `SELECT` only on the balance
-cache. Both are `NOLOGIN`; a deployment creates a login role and grants
-`ledger_app` to it.
+Two roles, and neither can log in. `ledger_owner` holds every object; the
+application never becomes it. `ledger_app` is the one a deployment grants to
+its own login role, and its grant list is where the invariants get their outer
+layer: nothing may be deleted from any table, the journal cannot be updated,
+and the balance cache is readable and not writable.
 
-There is exactly one way to touch tenant data:
+Tenant data has one entrance:
 
 ```ts
 await db.asTenant(tenantId, async (session) => { /* … */ })
@@ -347,86 +337,86 @@ await db.asTenant(tenantId, async (session) => { /* … */ })
 // commit   <- the deferred balance check fires here
 ```
 
-Both settings are `LOCAL`, so a connection cannot leak one request's tenant
-into the next, and error mapping wraps the whole transaction rather than
-individual statements — because the most important error arrives at `COMMIT`.
+`LOCAL` on both settings is what keeps a pooled connection from carrying one
+request's tenant into the next request that borrows it. Error mapping is
+wrapped around the transaction, not around individual statements, because the
+error that matters most does not arrive until `COMMIT`.
 
 ## Engineering notes
 
-**Mixed-currency entries are unrepresentable, not rejected.** Each entry
-declares a currency; each line's currency is tied to it by a composite foreign
-key to `(journal_entries.id, currency)`. There is no trigger to forget and no
-window between reading the entry and inserting the line.
+A mixed-currency entry is not rejected. It is unrepresentable. The currency
+lives on the entry, and `journal_lines` carries a composite foreign key back to
+`(journal_entries.id, currency)`, so a line in the wrong currency has no parent
+row to point at. Nothing to install and nothing to forget.
 
-**A three-column self foreign key does two jobs.** `accounts (tenant_id,
-parent_id, type) → accounts (tenant_id, id, type)` says, in one constraint,
-that a parent lives in the same tenant *and* has the same account type. Root
-accounts are free because `MATCH SIMPLE` treats a row with a NULL referencing
-column as satisfied.
+The parent link is a **three-column self foreign key**: `accounts (tenant_id,
+parent_id, type) → accounts (tenant_id, id, type)`. One constraint says both
+that a parent lives in the same tenant and that it carries the same account
+type. Root accounts are free, because `MATCH SIMPLE` treats a row with a NULL
+referencing column as satisfied.
 
-**`normal_balance` is a generated column.** `asset`/`expense` are debit-normal,
-everything else is credit-normal; the column is `GENERATED ALWAYS … STORED`, so
-it cannot drift from the type it is derived from — writing it raises `428C9`.
+Try to write `normal_balance` and PostgreSQL answers `428C9`. The column is
+`GENERATED ALWAYS … STORED` from `type` (`asset` and `expense` debit-normal,
+everything else credit-normal), so it cannot drift from what it is derived
+from, because it cannot be written at all.
 
-**Deriving `normal_balance` from `type` moves the problem to `type`.** An
-append-only journal is not enough on its own: change an account from `asset`
-to `expense` and every figure that account has ever contributed changes sign
-and moves from the balance sheet to the income statement, without one journal
-row being touched. The three-column self FK catches the obvious attempt — a
-child whose type stops matching its parent's — but not an account that is its
-own root, and not a parent and its children updated in the same statement,
-where every row still agrees with every other row. `sql/0013` closes both:
-once an account has journal lines its `type` is fixed. Renaming, reparenting
-within the same type and deactivating stay available, which is what
-`ledger_app` actually needs `UPDATE` on `accounts` for.
+Which moves the problem to `type`. An append-only journal is not enough on its
+own: change an account from `asset` to `expense` and every figure that account
+has ever contributed changes sign and moves from the balance sheet to the income
+statement, without one journal row being touched. The self FK catches the
+obvious attempt, a child whose type stops matching its parent's. It does not
+catch an account that is its own root, and it does not catch a parent and its
+children updated in the same statement, where every row still agrees with every
+other row. `sql/0013` closes both: once an account has journal lines its `type`
+is fixed. Renaming, reparenting within the same type and deactivating stay
+available, which is what `ledger_app` actually needs `UPDATE` on `accounts` for.
 
-**`FORCE ROW LEVEL SECURITY` is the load-bearing word.** Without it, the table
-owner bypasses every policy — and migrations, maintenance jobs and
-`SECURITY DEFINER` functions all run as the owner, so the exemption would cover
-exactly the code paths that touch the most rows. The isolation test
-[asserts the flag is set on all six tables](test/invariant-03-tenant-isolation.test.ts)
-and runs its read attack as the owner.
+The two lines that make isolation real are not the policies. One is `FORCE ROW
+LEVEL SECURITY`, which is what stops the table owner being exempt; the other is
+`ledger.current_tenant_id()` returning `NULL`, which is what a session that
+never identified itself gets to read. [`sql/0090`](sql/0090_security.sql) and
+[`sql/0001`](sql/0001_foundation.sql) each argue their half in the file header,
+so what belongs here is what the test does about it:
+[the isolation suite](test/invariant-03-tenant-isolation.test.ts) reads
+`relforcerowsecurity` for all six tables, runs its read attack as
+`ledger_owner`, and opens a session with no `app.tenant_id` at all to find the
+journal and the chart of accounts both empty.
 
-**Policies fail closed.** `ledger.current_tenant_id()` returns `NULL` when
-`app.tenant_id` is unset, every policy predicate evaluates to `NULL`, and a
-session that forgot to identify itself sees zero rows and writes none. The
-failure mode of a forgotten `SET` is an empty result, never someone else's
-books.
+RLS does not stop cross-tenant *references*, though. Foreign key checks run with
+row security switched off, and they have to: a referenced row hidden by a policy
+would otherwise look like a dangling reference. So a policy on its own leaves a
+line free to point at an account in somebody else's chart. The composite FK
+`(tenant_id, account_id)` is what closes it, and
+[the isolation suite](test/invariant-03-tenant-isolation.test.ts) makes exactly
+that write and watches it fail.
 
-**RLS does not stop cross-tenant *references*.** PostgreSQL runs referential
-integrity checks with row security bypassed, so a policy alone would happily
-let a line point at another tenant's account. The composite FK
-`(tenant_id, account_id)` is what closes that, and there is a test for it.
+The balance cache escalates privileges without escaping isolation. Its trigger
+is `AFTER INSERT … REFERENCING NEW TABLE … FOR EACH STATEMENT`, which is what
+turns a 200-line entry into one `UPSERT` and not 200, and the write itself goes
+through a `SECURITY DEFINER` function that `ledger_owner` owns — which is why
+`ledger_app` never needs more than `SELECT` on the table. Since the policies
+bind the owner as well, all the escalation buys is the right to write.
 
-**The balance cache escalates privileges without escaping isolation.** The
-cache is maintained by an `AFTER INSERT … REFERENCING NEW TABLE … FOR EACH
-STATEMENT` trigger, so a 200-line entry is one grouped `UPSERT` rather than 200.
-It writes through a `SECURITY DEFINER` function owned by `ledger_owner`, which
-is why `ledger_app` can hold `SELECT`-only on the table — and because `FORCE
-ROW LEVEL SECURITY` applies to the owner too, the escalation buys write access
-without buying cross-tenant access.
+`ledger.reconcile_balances(tenant)` full-outer-joins the incrementally
+maintained cache against a from-scratch recomputation and returns the
+disagreements. The tests assert it is empty after 300 random entries — and,
+because "always returns empty" would pass that assertion just as well, they also
+corrupt a cached row by `0.01` and assert the function *finds* it, then repair
+it with `ledger.rebuild_balances()` and assert it is empty again.
 
-**The reconciliation is the showpiece.** `ledger.reconcile_balances(tenant)`
-full-outer-joins the incrementally maintained cache against a from-scratch
-recomputation and returns the disagreements. The tests assert it is empty after
-300 random entries — and, because "always returns empty" would pass that
-assertion just as well, they also corrupt a cached row by `0.01` and assert the
-function *finds* it, then repair it with `ledger.rebuild_balances()` and assert
-it is empty again.
+Somebody posts February's salaries twice. Invariant #2 means the duplicate
+cannot be `UPDATE`d away, so `ledger.reverse_entry()` writes a second entry with
+the directions flipped and stamps `reverses_entry_id` on it. The link lives on
+the new row because the new row is the only one still writable. A
+`UNIQUE (tenant_id, reverses_entry_id)` then makes a second reversal of the same
+entry impossible, and the other direction, "was this entry reversed?", is read
+through a `security_invoker` view.
 
-**Correction is a reversal, and the link lives on the new row.** Pointing the
-original at its reversal would require an `UPDATE` of a posted entry, which is
-precisely what invariant #2 forbids. So the reversing entry carries
-`reverses_entry_id`, a `UNIQUE (tenant_id, reverses_entry_id)` makes double
-reversal impossible, and the reverse direction is read through a
-`security_invoker` view.
-
-**A statement's running balance opens correctly.** `WHERE` is applied before
-window functions, so filtering by a start date in the same `SELECT` as the
-window would hide earlier rows from the frame and restart the balance at zero.
-The frame is computed in its own CTE and the date filter applied outside it —
-so a statement for February opens at January's closing balance. This was a real
-bug, caught by a test that asserted the opening figure.
+A statement for February used to open at zero. `WHERE` is applied before window
+functions, so filtering on the start date in the same `SELECT` as the window hid
+January's rows from the frame and restarted the running balance from nothing.
+The frame is now computed in its own CTE and the date filter applied outside it.
+The test that caught this asserts the opening figure, not just the closing one.
 
 ## Performance
 
@@ -435,22 +425,23 @@ the same way: run the suite against the schema as it stands, then again
 against a copy of `sql/` with the one line in question reverted, on the same
 data set. Anyone can repeat it; nothing below is a remembered number.
 
-**A missing index column turned a join into a nested rescan.** RLS silently
+A missing index column turned a join into a nested rescan. RLS silently
 adds `tenant_id = current_tenant_id()` to every read of `journal_lines`. With
-the index on `(entry_id)` alone, the planner combines it with the account
-index in a `BitmapAnd` that rescans the account index once per entry. Making
-the index `(entry_id, tenant_id)` — leading with `entry_id` so the balance
-trigger's single-column lookup still works — is the difference between these
-two columns, over a journal of 2 001 entries / 4 200 lines, three runs each:
+`(entry_id)` alone the planner reaches for two indexes at once, and the
+`BitmapAnd` it builds walks `journal_lines_account_idx` again for every entry
+in the scan. Widening the index to `(entry_id, tenant_id)`, keeping `entry_id`
+in front so the balance trigger's single-column lookup still resolves, is the
+difference between these two columns — journal of 2 001 entries / 4 200 lines,
+three runs each:
 
 | | `(entry_id)` | `(entry_id, tenant_id)` |
 |---|---|---|
 | trial balance, mean of 10 | 68 – 92 ms | 4.0 – 4.5 ms |
 | one 200-line posting | 87 – 124 ms | 20 – 21 ms |
 
-**Hoisting a constant out of the row loop is worth less than it looks.**
-`account_statement` reads the account's normal balance once into a variable
-rather than looking it up per line, and the comment in
+Hoisting a constant out of the row loop turned out to be worth less than it
+looks. `account_statement` reads the account's normal balance once into a variable
+instead of looking it up per line, and the comment in
 [`sql/0012_reporting.sql`](sql/0012_reporting.sql) used to claim a large win
 for that. Measured, it does not hold. For a 2 000-row statement:
 
@@ -463,7 +454,7 @@ for that. Measured, it does not hold. For a 2 000-row statement:
 
 So the join form costs nothing the planner does not already remove, and the
 variable is kept for clarity rather than for speed. What genuinely does cost
-is a subquery or a function call evaluated per row — which is the general
+is a subquery or a function call evaluated per row, which is the general
 lesson, and the reason the comment now says that instead.
 
 Measured on this machine — Apple Silicon (darwin/arm64), Node v25.9.0, PGlite
@@ -495,13 +486,13 @@ reconciliation drift: 0 rows (0 means the cache is exact)
 These are PGlite numbers: PostgreSQL 18 compiled to WebAssembly, in-process,
 one connection, no network round trip and no concurrency. They are useful for
 comparing shapes of queries against each other, which is what they were used
-for above. They are **not** a throughput figure for a real server — a native
+for above. They are not a throughput figure for a real server: a native
 build with a connection pool will differ in both directions.
 
 ## Errors
 
 Database exceptions are translated into named errors by
-[`src/errors.ts`](src/errors.ts), which does nothing else — it never decides
+[`src/errors.ts`](src/errors.ts), which does nothing else: it never decides
 whether something is allowed, only what to call the refusal. Anything
 unrecognised is rethrown untouched.
 
@@ -525,36 +516,36 @@ unrecognised is rethrown untouched.
 | `OverlappingPeriodError` | `23P01` on the period exclusion constraint |
 | `TenantIsolationError` / `InsufficientPrivilegeError` | `42501`, split on the message |
 
-Custom rules use `SQLSTATE` class `LG`, which PostgreSQL reserves for
-user-defined conditions.
+The `LG` class is not invented. PostgreSQL sets that range aside for conditions
+an application defines, which is what the trigger-raised rules above are.
 
 Two of these are raised by the TypeScript layer rather than by the schema:
 `AccountNotFoundError` when a `parentCode` or an account code handed to
 `createAccounts`/`setAccountActive` matches nothing, and `PeriodNotFoundError`
 when `setPeriodState` names a period that does not exist. Those are argument
-resolution, not accounting — the schema cannot refuse them, because the row
+resolution, not accounting; the schema cannot refuse them, because the row
 they would produce is perfectly legal. They carry the same `sqlState` as the
 equivalent database refusal so a caller can branch on one thing.
 
 Over HTTP the same list is read once more, by
 [`src/api/errors.ts`](src/api/errors.ts), which decides what each refusal is
-worth as a status code. `InsufficientPrivilegeError` is deliberately missing
-from that table: it means `ledger_app` was granted the wrong privileges, which
-is an operator's problem and becomes a 500.
+worth as a status code. One class has no row there. `InsufficientPrivilegeError`
+means `ledger_app` was granted the wrong privileges, and that is a deployment
+fault, so it leaves as a bare 500.
 
 ## Tests
 
 150 tests over 13 files, about 10 seconds. Every test file starts its own
-PostgreSQL and applies the real migrations — no mocks, no fakes, no in-memory
-substitute for the thing being tested. The API tests are the same: they drive
-the real routes through Fastify's `inject`, against a real ledger, so the 422s
-they assert on are the database refusing rather than a stub.
+PostgreSQL and applies the real migrations: no mocks, no in-memory substitute
+for the thing being tested. The API tests are the same: they drive the real
+routes through Fastify's `inject` against a real ledger, so the 422s they assert
+on are the database refusing, not a stub.
 
-The invariant tests deliberately **bypass the TypeScript layer**. They open a
-session and write raw SQL as `ledger_app`, or as `ledger_owner` where the point
-is that ownership does not help. If any of them passed, the TypeScript checks
-would be the only thing between a bug and corrupt books — which is the
-situation this project exists to avoid.
+The invariant tests bypass the TypeScript layer entirely. They open a session
+and write raw SQL as `ledger_app`, or as `ledger_owner` where the point is that
+ownership does not help. If any of them passed, the TypeScript checks
+would be the only thing between a bug and corrupt books, which is the situation
+this project exists to avoid.
 
 [`test/property-random-books.test.ts`](test/property-random-books.test.ts)
 generates 300 random balanced entries — random dates, accounts, line counts,
@@ -574,7 +565,7 @@ npx vitest                                  # watch mode
 
 ## Running against a real PostgreSQL
 
-The schema is ordinary PostgreSQL 18 — `btree_gist` is the only extension.
+The schema is ordinary PostgreSQL 18; `btree_gist` is the only extension.
 [`docker-compose.yml`](docker-compose.yml) starts a server and applies `sql/*.sql`
 through the official image's init hook, in the same order and as the same
 superuser the migration runner uses:
@@ -586,12 +577,12 @@ docker compose exec db psql -U postgres -d ledger \
   -c "create role app login password 'app'; grant ledger_app to app;"
 ```
 
-Two honest caveats. The test suite does not use this file — it runs against
-PGlite, which is why CI declares no services and needs no wait-for-postgres
-step. And the shipped client is the PGlite one: `Database` in
+Two caveats. The test suite does not use this file: it runs against PGlite,
+which is why CI declares no services and needs no wait-for-postgres step. And
+the shipped client is the PGlite one. `Database` in
 [`src/database.ts`](src/database.ts) is where a `node-postgres` driver would
-slot in, and it is not written here, because a driver that has never been run
-is not something to claim as a feature.
+slot in; it is not written here, because a driver that has never been run is not
+something to claim as a feature.
 
 ## Limitations
 

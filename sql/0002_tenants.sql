@@ -1,5 +1,3 @@
--- 0002_tenants.sql
---
 -- Tenants. Everything else in the schema hangs off this table, and every
 -- tenant-scoped table carries a redundant tenant_id column so that row level
 -- security can be expressed as a single equality test with no joins.

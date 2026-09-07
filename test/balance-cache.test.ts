@@ -2,14 +2,14 @@
  * The incrementally maintained balance cache, and the reconciliation that
  * makes it trustworthy.
  *
- * Mechanism: sql/0010_account_balances.sql (the table, the statement-level
- * trigger with a transition table, the SECURITY DEFINER write path) and
- * ledger.reconcile_balances in sql/0012_reporting.sql.
+ * sql/0010_account_balances.sql has the table, the statement-level trigger
+ * with its transition table and the SECURITY DEFINER write path.
+ * ledger.reconcile_balances is over in sql/0012_reporting.sql.
  *
  * A cache is only worth having if you can prove it agrees with the source of
- * truth. The reconciliation test cuts both ways here: it shows the cache
- * matches a full recomputation, *and* -- by deliberately corrupting a row --
- * that the comparison would notice if it did not.
+ * truth. The reconciliation test cuts both ways: it shows the cache matches a
+ * full recomputation, and -- by corrupting a cached row first -- that the
+ * comparison would have noticed if it had not.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -38,7 +38,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  await fixture.close()
+  await fixture.db.close()
 })
 
 describe('the balance cache', () => {
@@ -86,8 +86,7 @@ describe('the balance cache', () => {
   })
 
   it('groups a many-line entry into one row per account and currency', async () => {
-    // The trigger is FOR EACH STATEMENT with a transition table, so a 20-line
-    // entry is one grouped UPSERT rather than 20 round trips.
+    // one grouped UPSERT for the whole statement, not 20 -- see 0010
     const lines = Array.from({ length: 10 }, (_, i) => ({
       accountCode: '5100',
       direction: 'debit' as const,
@@ -132,8 +131,7 @@ describe('the balance cache', () => {
   })
 
   it('cannot be written by the application role', async () => {
-    // ledger_app holds SELECT only. The trigger writes through a SECURITY
-    // DEFINER function owned by ledger_owner.
+    // ledger_app holds SELECT here; the write path is 0010's definer function
     await expect(
       fixture.db.asTenant(tenant.id, (session) =>
         session.query('update ledger.account_balances set debit_total = 0'),

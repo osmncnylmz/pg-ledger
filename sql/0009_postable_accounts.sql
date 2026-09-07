@@ -1,12 +1,8 @@
--- 0009_postable_accounts.sql
---
--- Postings may only touch leaf accounts.
---
--- A parent in the chart of accounts is a rollup, not a place to put money;
--- allowing both postings and children on one account makes every subtotal
--- ambiguous. The rule needs two triggers, because it can be broken from
--- either side: by posting to an account that has children, or by giving a
--- parent to an account that already has postings.
+-- Postings may only touch leaf accounts. A parent in the chart of accounts is
+-- a rollup, not a place to put money, and allowing both postings and children
+-- on one account makes every subtotal ambiguous. The rule needs two triggers,
+-- because it can be broken from either side: by posting to an account that has
+-- children, or by giving a parent to an account that already has postings.
 
 create function ledger.assert_account_is_leaf() returns trigger
   language plpgsql

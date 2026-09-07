@@ -44,7 +44,6 @@ function json<T>(response: InjectResponse): T {
 
 let db: Database
 let ledger: Ledger
-let close: () => Promise<void>
 let app: FastifyInstance
 let acme: string
 let rival: string
@@ -81,7 +80,6 @@ beforeAll(async () => {
   const fixture = await createFixture()
   db = fixture.db
   ledger = fixture.ledger
-  close = fixture.close
 
   acme = (await seedTenant(ledger, { slug: 'acme' })).id
   rival = (await seedTenant(ledger, { slug: 'rival' })).id
@@ -92,7 +90,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await app.close()
-  await close()
+  await db.close()
 })
 
 describe('health', () => {

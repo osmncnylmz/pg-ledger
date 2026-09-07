@@ -1,12 +1,11 @@
 /**
  * Invariant #1 -- every journal entry balances.
  *
- * Mechanism: sql/0006_balanced_entries.sql, a CONSTRAINT TRIGGER declared
- * DEFERRABLE INITIALLY DEFERRED on both journal tables.
- *
- * Each test writes raw SQL as the application role, bypassing the TypeScript
- * layer entirely. If any of these passed, the TypeScript layer's checks would
- * be the only thing standing between a bug and corrupt books.
+ * Nothing here goes through the Ledger class: every test writes raw SQL as
+ * ledger_app, which is the point. A deferred trigger also means the refusal
+ * arrives at COMMIT, so an assertion wrapped around a single INSERT would pass
+ * while the books were still broken -- expect() has to wrap the whole
+ * db.asTenant() call.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -23,7 +22,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  await fixture.close()
+  await fixture.db.close()
 })
 
 async function insertEntry(key: string, currency = 'EUR'): Promise<string> {

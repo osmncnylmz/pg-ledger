@@ -1,15 +1,12 @@
 /**
- * The HTTP layer.
+ * The HTTP layer: transport, request shape, and giving refusals a status code.
+ * No accounting rule of its own -- every route is a call into `Ledger`, which
+ * is a call into the schema.
  *
- * It carries requests, validates their shape and names refusals. It holds no
- * accounting rule of its own: every route is a call into `Ledger`, which is a
- * call into the schema, which is where the rules live.
- *
- * The tenant arrives in a header and is set on the connection by
- * `Database.asTenant` for the duration of one transaction, so a request that
- * reaches for another tenant's rows does not get filtered out by a WHERE
- * clause written here -- the rows are not visible to it at all, and a request
- * with no tenant at all sees nothing rather than everything.
+ * X-Tenant-Id is read in an onRequest hook and never from a body or a path.
+ * Every tenant-scoped query below that hook goes through `Database.asTenant`,
+ * so no route handler writes a tenant_id predicate of its own -- if one ever
+ * needs to, something above it has already gone wrong.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -68,7 +65,7 @@ export function buildServer(db: Database, options: ServerOptions = {}): FastifyI
     reply.status(described.status).send(errorBody(described, request.id))
   })
 
-  // Thrown rather than answered here, so that a missing route leaves through
+  // Thrown, not answered here, so that a missing route leaves through
   // the same handler as every other refusal and arrives in the same shape.
   app.setNotFoundHandler(async (request) => {
     throw new ApiError(404, 'route_not_found', `no route for ${request.method} ${request.url}`)
