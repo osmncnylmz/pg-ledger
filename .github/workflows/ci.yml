@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+
+    # No services block on purpose. The tests run PostgreSQL 18 in-process via
+    # PGlite, so there is no container to wait for and no connection string to
+    # configure.
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.x', '24.x']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Demo (end-to-end smoke test)
+        run: node dist/scripts/demo.js
+
+      # Every command the README tells a reader to run is run here. The
+      # benchmark takes a few seconds and posts 2 000 entries, so it doubles
+      # as a smoke test of the posting path at a size the unit tests do not
+      # reach; its timings are not asserted on.
+      - name: Benchmark (smoke test)
+        run: node dist/scripts/bench.js
+
+      # `npm run serve` is the one command in the README that does not exit by
+      # itself, so it is started, asked for its health and then asked to stop.
+      # `wait` returns the server's exit code, which makes this a test of the
+      # shutdown path too.
+      - name: API (smoke test)
+        run: |
+          node dist/scripts/serve.js &
+          pid=$!
+          for _ in $(seq 1 40); do curl -sf localhost:3000/health > /dev/null && break; sleep 0.5; done
+          curl -sf localhost:3000/health
+          kill -TERM $pid
+          wait $pid
