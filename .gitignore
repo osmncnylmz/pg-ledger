@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Test / tooling caches
+coverage/
+.vitest/
+.eslintcache
+
+# Local PGlite data directories (tests use in-memory instances)
+pgdata/
+*.pgdata/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Environment
+.env
+.env.*
+!.env.example

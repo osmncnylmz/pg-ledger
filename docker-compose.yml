@@ -1,0 +1,42 @@
+# A real PostgreSQL server, for when you want one.
+#
+# The test suite does not need this file: it runs the same migrations against
+# PGlite (PostgreSQL 18 compiled to WebAssembly) in-process, which is why CI
+# declares no services. This is here because the schema is ordinary
+# PostgreSQL 18 and should be easy to run as such.
+#
+#   docker compose up -d
+#   docker compose exec db psql -U postgres -d ledger -c '\dt ledger.*'
+#
+# Files in sql/ are applied in filename order by the official image's
+# initdb hook, as the superuser -- the same order and the same role the
+# migration runner uses.
+#
+# The schema creates ledger_owner and ledger_app as NOLOGIN roles. Give the
+# application a login role of its own and grant it ledger_app:
+#
+#   docker compose exec db psql -U postgres -d ledger \
+#     -c "create role app login password 'app'; grant ledger_app to app;"
+#
+# Then connect as `app` and set app.tenant_id per transaction, exactly as
+# src/database.ts does.
+
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ledger
+    ports:
+      - '5432:5432'
+    volumes:
+      - ./sql:/docker-entrypoint-initdb.d:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d ledger']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

@@ -1,0 +1,60 @@
+{
+  "name": "pg-ledger",
+  "version": "0.1.0",
+  "description": "A double-entry ledger where PostgreSQL enforces the accounting.",
+  "keywords": [
+    "postgresql",
+    "double-entry",
+    "ledger",
+    "accounting",
+    "row-level-security",
+    "pglite"
+  ],
+  "license": "MIT",
+  "author": "Osman Can YILMAZ",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./api": {
+      "types": "./dist/api/server.d.ts",
+      "default": "./dist/api/server.js"
+    }
+  },
+  "files": [
+    "dist",
+    "sql",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "serve": "npm run build && node dist/scripts/serve.js",
+    "test:api": "vitest run test/api.test.ts",
+    "demo": "npm run build && node dist/scripts/demo.js",
+    "bench": "npm run build && node dist/scripts/bench.js"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "fastify": "^5.12.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@types/node": "^24.10.1",
+    "eslint": "^9.39.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.0",
+    "vitest": "^3.2.4"
+  }
+}
